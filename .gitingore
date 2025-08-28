@@ -1,0 +1,5 @@
+.idea/
+client_v1/__pycache__/
+codec/__pycache__/
+common/__pycache__/
+server/__pycache__/

@@ -17,7 +17,7 @@ NAT_COMMAND_RESPONSE        = 3 # response
 BYTE_ORDER                  = 'big'
 CHAR_SET                    = 'utf-8'
 SOCKET_KEY                  = 'socket'
-NAT_PARSER_REQUEST          = 'nat_parser_request' # 接收数据累加器
+NAT_PARSER_REQUEST          = 'nat_parser_request'
 HTTP_PARSER_REQUEST         = 'http_parser_request'
 HTTP_PARSER_RESPONSE        = 'http_parser_response'
 

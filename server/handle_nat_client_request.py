@@ -73,9 +73,6 @@ def handle_nat_client_request(conn_nat_socket):
 
             print(f'conn_proxy_socket_fd={conn_proxy_socket.fileno()}向Client发送数据')
             conn_proxy_socket.sendall(bytes(frame.encode('utf-8')))
-
-
-
         else:
             print(f"Not supported request, client socket close, {conn_nat_socket}")
             close_nat_socket(conn_nat_socket)

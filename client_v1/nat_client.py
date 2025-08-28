@@ -81,7 +81,6 @@ def __process_task(nat_socket, proxied_host, proxied_port, TASK_PROXY_HTTP_REQUE
         data = task['data']
         if command == TASK_PROXY_HTTP_REQUEST_TO_PROXIED_SERVER:
             print('将客户端发送来的请求转发给内网服务')
-
             conn_proxy_socket_fd = data['conn_proxy_socket_fd']
             port = data['port']
             method = data['method']
@@ -89,36 +88,38 @@ def __process_task(nat_socket, proxied_host, proxied_port, TASK_PROXY_HTTP_REQUE
             headers = data['headers']
             body = data['body']
 
-            # 连接被代理服务
+            print('\t连接被代理服务')
             proxied_socket = connect_proxied_socket(
                 host=proxied_host,
                 port=proxied_port,
                 blocking=True
             )
 
-
-            l = []
-            l.append(f'{method} {url} HTTP/1.1\r\n')
+            http_frame = []
+            http_frame.append(f'{method} {url} HTTP/1.1\r\n')
 
             for header in headers:
                 if header == 'Host':
-                    l.append(f'{header}: {proxied_host}:{proxied_port}\r\n')
+                    http_frame.append(f'{header}: {proxied_host}:{proxied_port}\r\n')
                 else:
-                    l.append(f'{header}: {headers[header]}\r\n')
-            l.append('\r\n')
+                    http_frame.append(f'{header}: {headers[header]}\r\n')
+            http_frame.append('\r\n')
             if body is not None:
-                l.append(json.dumps(body))
+                http_frame.append(json.dumps(body))
 
-            frame = "".join(l)
-            proxied_socket.sendall(bytes(frame.encode('utf-8')))
+            print(f'\t向被代理服务发送数据, data: {http_frame}')
+            request = "".join(http_frame)
+            proxied_socket.sendall(bytes(request.encode('utf-8')))
 
             # 响应
-            data = http_decode_response(proxied_socket, HttpParser())
-            data['conn_proxy_socket_fd'] = conn_proxy_socket_fd
+            response = http_decode_response(proxied_socket, HttpParser())
+            print(f'\t接收被代理服务响应内容, data: {json.dumps(response)}')
 
-            print(f'将客户端发送来的请求响应转发给NAT Server. data: {json.dumps(data)}')
-            frame = nat_encode(data, NAT_COMMAND_RESPONSE)
-            nat_socket.sendall(frame)
+            response['conn_proxy_socket_fd'] = conn_proxy_socket_fd
+
+            print(f'将客户端发送来的请求响应转发给NAT Server. data: {json.dumps(response)}')
+            nat_frame = nat_encode(response, NAT_COMMAND_RESPONSE)
+            nat_socket.sendall(nat_frame)
 
     TASK_PROXY_HTTP_REQUEST_TO_PROXIED_SERVER_LIST.clear()
 
@@ -148,6 +149,7 @@ def main_loop():
                 else:
                     continue
 
+            # 执行任务
             if len(TASK_PROXY_HTTP_REQUEST_TO_PROXIED_SERVER_LIST) > 0 or len(TASK_PROXY_HTTP_RESPONSE_TO_NAT_SERVER_LIST) > 0:
                 __process_task(nat_socket, proxied_host, proxied_port, TASK_PROXY_HTTP_REQUEST_TO_PROXIED_SERVER_LIST, TASK_PROXY_HTTP_RESPONSE_TO_NAT_SERVER_LIST)
 

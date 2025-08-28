@@ -17,7 +17,7 @@ def handle_client_request(conn_proxy_socket):
         return
 
     if data is NOT_FULL_FRAME:
-        print('不是一个完整的帧1')
+        print('不是一个完整的帧')
         return
 
     print('HTTP请求解码后数据', data)

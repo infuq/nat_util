@@ -10,7 +10,7 @@ def handle_proxied_response(conn_proxied_socket):
     # 2.解码
     data = http_decode_response(conn_proxied_socket, parser)
     if data is NOT_FULL_FRAME:
-        print('不是一个完整的帧2')
+        print('不是一个完整的帧')
         return
 
     print('HTTP响应解码后数据', data)

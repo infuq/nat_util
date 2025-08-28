@@ -10,7 +10,7 @@ NAT Server 与 NAT Client 通信时使用自定义NAT通信协议, 需要用到�
 def nat_decode(conn_socket, cumulation, socket_fd_map):
     data_len = len(cumulation)
     if data_len < LENGTH_FIELD_LENGTH + LENGTH_COMMAND_LENGTH:
-        return NOT_WHOLE_FRAME
+        return NOT_FULL_FRAME
 
     # 解码4个字节
     command = cumulation[0:LENGTH_COMMAND_LENGTH]
@@ -22,24 +22,24 @@ def nat_decode(conn_socket, cumulation, socket_fd_map):
 
     frame_len = LENGTH_COMMAND_LENGTH + LENGTH_FIELD_LENGTH + business_data_len
     if data_len < frame_len:
-        return NOT_WHOLE_FRAME
+        return NOT_FULL_FRAME
 
     # 解码业务数据
     frame = cumulation[LENGTH_COMMAND_LENGTH+LENGTH_FIELD_LENGTH:frame_len]
 
     # 跳过一个帧的长度,存储剩下的字节
-    socket_fd_map[conn_socket.fileno()][CUMULATOR_KEY] = cumulation[frame_len:]
+    socket_fd_map[conn_socket.fileno()][NAT_PARSER_REQUEST] = cumulation[frame_len:]
 
 
     frame = frame.decode()
-    frame = json.loads(frame)
-    frame['command'] = command
+    frame_obj = json.loads(frame)
+    frame_obj['command'] = command
+    print('NAT解码后数据', json.dumps(frame_obj))
+    return frame_obj
 
-    return frame
 
 
-
-# 编码器
+# 自定义NAT协议编码器
 def nat_encode(data, command):
     data = json.dumps(data)
     body = bytes(data, CHAR_SET)

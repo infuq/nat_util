@@ -1,7 +1,7 @@
-import time
-
+import urllib.parse
+import urllib.parse
+import json
 from common.const import *
-
 
 """
 1.外网的 Client 与 NAT Server 通信
@@ -9,86 +9,100 @@ from common.const import *
 """
 
 # HTTP请求解码器
-def http_decode_request(conn_socket, cumulation, socket_fd_map):
+def http_decode_request(conn_socket, parser):
+    request_headers = None
+    body = []
+    message_complete = False
+    while True:
+        data = conn_socket.recv(RECV_MAX_SIZE)
+        if not data:
+            if parser.is_message_complete() and len(body) == 0:
+                return NEED_CLOSE_CONN
+            else:
+                break
 
-    # 查找请求头结束的位置 \r\n\r\n
-    headers_end_index = cumulation.find(HTTP_HEADERS_END)
-    if headers_end_index == -1:
-        return NOT_WHOLE_FRAME
+        recved = len(data)
+        nparsed = parser.execute(data, recved)
+        assert nparsed == recved
 
-    # 请求头
-    header = cumulation[0:headers_end_index]
-    request_lines = header.decode().split("\r\n")
-    method, path, protocol = request_lines[0].split(" ")
-    request_headers = {
-        'method': method,
-        'path': path,
-        'protocol': protocol
-    }
-    for line in request_lines[1:]:
-        index = line.find(':')
-        key = line[0:index]
-        value = line[index+2:] # 跳过 `: ` 获取值
+        if parser.is_headers_complete():
+            request_headers = parser.get_headers()
 
-        if 'host' == key.lower():
-            host, port = value.split(':')
-            request_headers['host'] = host
-            request_headers['port'] = port
-        request_headers[key] = value
+        if parser.is_partial_body():
+            body.append(parser.recv_body())
 
+        if parser.is_message_complete():
+            message_complete = True
+            break
+    if not message_complete:
+        return NOT_FULL_FRAME
 
-    content_length = 0
-    frame_len = headers_end_index + len(HTTP_HEADERS_END) + content_length
-    if 'Content-Length' in request_headers.keys():
-        content_length = request_headers['Content-Length']
-        content_length = int(content_length)
-        frame_len = headers_end_index + len(HTTP_HEADERS_END) + content_length
-        if len(cumulation) < frame_len:
-            return NOT_WHOLE_FRAME
-    else:
-        print('请求头里没有Content-Length属性')
+    port = None
+    headers = {}
+    for key in request_headers:
+        value = request_headers[key]
+        headers[key] = value
+        if key == 'Host':
+            port = int(value.split(':')[-1])
+            headers['port'] = port
 
-    # 跳过一个帧的长度
-    socket_fd_map[conn_socket.fileno()][CUMULATOR_KEY] = cumulation[frame_len:]
+    method          = parser.get_method()
+    path            = parser.get_path()
+    url             = urllib.parse.unquote(parser.get_url())
+    query_string    = urllib.parse.unquote(parser.get_query_string())
+
+    body_obj = None
+    if len(body) > 0: # 需要再判断 Content-Type ?
+        l = b''.join(body)
+        body_obj = json.loads(l.decode('utf-8'))
 
     return {
-        "request_headers": request_headers,
-        "frame": cumulation[0:frame_len] # 完整的HTTP请求包
+        "port": port,
+        "method": method,
+        "url": url,
+        "headers": headers,
+        "body": body_obj
     }
-
 
 
 # HTTP响应解码器
-def http_decode_response(conn_socket, cumulation, socket_fd_map):
+def http_decode_response(conn_socket, parser):
+    request_headers = None
+    body_l = []
+    message_complete = False
+    while True:
+        data = conn_socket.recv(RECV_MAX_SIZE)
+        if not data:
+            break
 
-    # 查找响应头结束的位置
-    headers_end_index = cumulation.find(HTTP_HEADERS_END)
+        recved = len(data)
+        nparsed = parser.execute(data, recved)
+        assert nparsed == recved
 
-    # 请求头
-    header = cumulation[0:headers_end_index]
-    request_lines = header.decode().split("\r\n")
-    response_headers = { }
-    for line in request_lines[1:]:
-        index = line.find(':')
-        key = line[0:index]
-        value = line[index + 2:]  # 跳过 `: ` 获取值
-        response_headers[key] = value
+        if parser.is_headers_complete():
+            request_headers = parser.get_headers()
 
-    content_length = 0
-    frame_len = headers_end_index + len(HTTP_HEADERS_END) + content_length
-    if 'Content-Length' in response_headers.keys():
-        content_length = response_headers['Content-Length']
-        content_length = int(content_length)
-        frame_len = headers_end_index + len(HTTP_HEADERS_END) + content_length
-        if len(cumulation) < frame_len:
-            return NOT_WHOLE_FRAME
-    else:
-        print('响应头里没有Content-Length属性')
+        if parser.is_partial_body():
+            body_l.append(parser.recv_body())
 
-    # 跳过一个帧的长度
-    socket_fd_map[conn_socket.fileno()][CUMULATOR_KEY] = cumulation[frame_len:]
+        if parser.is_message_complete():
+            message_complete = True
+            break
+    if not message_complete:
+        return NOT_FULL_FRAME
+
+
+    headers = {}
+    for key in request_headers:
+        value = request_headers[key]
+        headers[key] = value
+
+    body = None
+    if len(body_l) > 0:  # 需要再判断 Content-Type ?
+        l = b''.join(body_l)
+        body = l.decode('utf-8')
 
     return {
-        "response_headers": response_headers,
-        "frame": cumulation[0:frame_len]  # 完整的HTTP响应包
+        "headers": headers,
+        "body": body
     }

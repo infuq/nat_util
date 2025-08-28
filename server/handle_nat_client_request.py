@@ -8,8 +8,8 @@ from server.nat_server_variable import *
 
 
 # 处理 NAT Client 发送来的数据
-def handle_nat_request(conn_nat_socket):
-    cumulation = conn_nat_socket_fd_map[conn_nat_socket.fileno()][CUMULATOR_KEY]
+def handle_nat_client_request(conn_nat_socket):
+    cumulation = conn_nat_socket_fd_map[conn_nat_socket.fileno()][NAT_PARSER_REQUEST]
 
     # 1.累加已接收数据
     while True:
@@ -28,7 +28,7 @@ def handle_nat_request(conn_nat_socket):
 
     # 2.解码已接收数据
     frame = nat_decode(conn_nat_socket, cumulation, conn_nat_socket_fd_map)
-    if frame is NOT_WHOLE_FRAME:
+    if frame is NOT_FULL_FRAME:
         return
 
     try:
@@ -37,10 +37,15 @@ def handle_nat_request(conn_nat_socket):
 
             proxy_protocol = frame['proxy_protocol']
             proxy_port = frame['proxy_port']
-            proxy_port = int(proxy_port)
+
+            if str(proxy_port) in listen_proxy_port_map.keys():
+                print('该端口正在监听,请选择其他监听端口')
+                close_nat_socket(conn_nat_socket)
+                return
+
             proxy_server_socket = createProxyServerSocket(ip="0.0.0.0", port=proxy_port)
 
-            listen_proxy_port_map[proxy_port] = {
+            listen_proxy_port_map[str(proxy_port)] = {
                 "proxy_protocol": proxy_protocol,
                 "proxy_port": proxy_port,
                 "proxy_server_socket": proxy_server_socket,
@@ -51,21 +56,25 @@ def handle_nat_request(conn_nat_socket):
             conn_proxy_socket_fd = frame['conn_proxy_socket_fd']
             conn_proxy_socket = conn_proxy_socket_fd_map[conn_proxy_socket_fd][SOCKET_KEY]
 
-            # 解码4个字节
-            business_data_len = cumulation[LENGTH_COMMAND_LENGTH:LENGTH_FIELD_LENGTH + LENGTH_COMMAND_LENGTH]
-            business_data_len = int.from_bytes(business_data_len, BYTE_ORDER)
 
-            frame_len = LENGTH_COMMAND_LENGTH + LENGTH_FIELD_LENGTH + business_data_len
-            # 解码业务数据
-            frame = cumulation[LENGTH_COMMAND_LENGTH + LENGTH_FIELD_LENGTH:frame_len]
+            headers = frame['headers']
+            body = frame['body']
 
-            frame = frame.decode()
-            frame = json.loads(frame)
+            l = []
+            l.append('HTTP/1.1 200 OK\r\n')
 
-            data = frame['data']
+            for header in headers:
+                l.append(f'{header}: {headers[header]}\r\n')
+            l.append('\r\n')
+            if body is not None:
+                l.append(body)
+
+            frame = "".join(l)
 
             print(f'conn_proxy_socket_fd={conn_proxy_socket.fileno()}向Client发送数据')
-            conn_proxy_socket.sendall(data.encode())
+            conn_proxy_socket.sendall(bytes(frame.encode('utf-8')))
+
+
 
         else:
             print(f"Not supported request, client socket close, {conn_nat_socket}")

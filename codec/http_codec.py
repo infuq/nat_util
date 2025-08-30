@@ -11,13 +11,13 @@ from common.const import *
 # HTTP请求解码器
 def http_decode_request(conn_socket, parser):
     request_headers = None
-    body = []
+    body_l = []
     message_complete = False
     while True:
         data = conn_socket.recv(RECV_MAX_SIZE)
         if not data:
-            if parser.is_message_complete() and len(body) == 0:
-                return NEED_CLOSE_CONN
+            if parser.is_message_complete() and len(body_l) == 0:
+                return NEED_CLOSE_CONN, None
             else:
                 break
 
@@ -29,13 +29,14 @@ def http_decode_request(conn_socket, parser):
             request_headers = parser.get_headers()
 
         if parser.is_partial_body():
-            body.append(parser.recv_body())
+            body_l.append(parser.recv_body())
 
         if parser.is_message_complete():
             message_complete = True
             break
+
     if not message_complete:
-        return NOT_FULL_FRAME
+        return NOT_FULL_FRAME, None
 
     port = None
     headers = {}
@@ -44,25 +45,23 @@ def http_decode_request(conn_socket, parser):
         headers[key] = value
         if key == 'Host':
             port = int(value.split(':')[-1])
-            headers['port'] = port
 
     method          = parser.get_method()
     path            = parser.get_path()
     url             = urllib.parse.unquote(parser.get_url())
     query_string    = urllib.parse.unquote(parser.get_query_string())
 
-    body_obj = None
-    if len(body) > 0: # 需要再判断 Content-Type ?
-        l = b''.join(body)
-        body_obj = json.loads(l.decode('utf-8'))
+    body = None
+    if len(body_l) > 0: # 需要再判断 Content-Type ?
+        l = b''.join(body_l)
+        body = l.decode('utf-8')
 
     return {
-        "port": port,
         "method": method,
         "url": url,
         "headers": headers,
-        "body": body_obj
-    }
+        "body": body
+    }, port
 
 
 # HTTP响应解码器
@@ -91,16 +90,22 @@ def http_decode_response(conn_socket, parser):
     if not message_complete:
         return NOT_FULL_FRAME
 
+    body = None
+    content_length = 0
+    if len(body_l) > 0:  # 需要再判断 Content-Type ?
+        l = b''.join(body_l)
+        content_length = len(l)
+        body = l.decode('utf-8')
 
     headers = {}
     for key in request_headers:
         value = request_headers[key]
-        headers[key] = value
-
-    body = None
-    if len(body_l) > 0:  # 需要再判断 Content-Type ?
-        l = b''.join(body_l)
-        body = l.decode('utf-8')
+        if key == 'Connection':
+            headers[key] = 'keep-alive'
+        elif key == 'Transfer-Encoding':
+            headers["Content-Length"] = content_length
+        else:
+            headers[key] = value
 
     return {
         "headers": headers,

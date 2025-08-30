@@ -6,7 +6,7 @@ from common.const import *
 from server.create_listen_socket import createNatServerSocket
 from server.handle_client_request import handle_client_request
 from server.handle_nat_client_request import handle_nat_client_request
-from server.handle_task import process_proxy_http_request_to_nat_client_task
+from server.handle_task import run_all_tasks
 from server.nat_server_variable import *
 
 try:
@@ -46,17 +46,17 @@ def main_loop():
                     conn_socket.setblocking(False)
 
                     conn_nat_socket_list.append(conn_socket)
-                    conn_nat_socket_fd_map[conn_socket.fileno()] = {
+                    conn_nat_socket_fd_dict[str(conn_socket.fileno())] = {
                         NAT_PARSER_REQUEST: EMPTY_MERGE_CUMULATOR,
                         SOCKET_KEY: conn_socket
                     }
                     print(f"A New NAT Client Connection from: {address}, fd={conn_socket.fileno()}")
-                elif sock in listen_proxy_server_socket_list: # Client <---> Proxy Server
+                elif sock in listen_proxy_server_socket_list: # Client 连接 Proxy Server
                     conn_proxy_socket, address = sock.accept()
                     conn_proxy_socket.setblocking(False)
 
                     conn_proxy_socket_list.append(conn_proxy_socket)
-                    conn_proxy_socket_fd_map[conn_proxy_socket.fileno()] = {
+                    conn_proxy_socket_fd_dict[str(conn_proxy_socket.fileno())] = {
                         HTTP_PARSER_REQUEST: HttpParser(),
                         SOCKET_KEY: conn_proxy_socket
                     }
@@ -69,8 +69,10 @@ def main_loop():
                     continue
 
             # 执行任务
-            if len(TASK_PROXY_HTTP_REQUEST_TO_NAT_CLIENT_LIST) > 0:
-                process_proxy_http_request_to_nat_client_task(TASK_PROXY_HTTP_REQUEST_TO_NAT_CLIENT_LIST)
+            run_all_tasks()
+
+
+
 
     except Exception as err:
         print(err)

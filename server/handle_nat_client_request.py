@@ -1,21 +1,20 @@
-import json
-
-from server.close_conn_socket import close_nat_socket
 from codec.nat_codec import nat_decode
 from common.const import *
+from server.close_conn_socket import close_nat_socket
 from server.create_listen_socket import createProxyServerSocket
 from server.nat_server_variable import *
 
 
 # 处理 NAT Client 发送来的数据
 def handle_nat_client_request(conn_nat_socket):
-    cumulation = conn_nat_socket_fd_map[conn_nat_socket.fileno()][NAT_PARSER_REQUEST]
+    fd = conn_nat_socket.fileno()
+    cumulation = conn_nat_socket_fd_dict[str(fd)][NAT_PARSER_REQUEST]
 
     # 1.累加已接收数据
     while True:
         received_chunk = conn_nat_socket.recv(RECV_MAX_SIZE)
         if len(received_chunk) == 0 and len(cumulation) == 0:
-            print(f'fd={conn_nat_socket.fileno()}断开连接')
+            print(f'fd={fd}断开连接')
             close_nat_socket(conn_nat_socket)
             return
         if len(received_chunk) == 0:
@@ -25,27 +24,32 @@ def handle_nat_client_request(conn_nat_socket):
             break
         cumulation = cumulation + received_chunk
 
+    conn_nat_socket_fd_dict[str(fd)][NAT_PARSER_REQUEST] = cumulation
 
     # 2.解码已接收数据
-    frame = nat_decode(conn_nat_socket, cumulation, conn_nat_socket_fd_map)
-    if frame is NOT_FULL_FRAME:
+    data, frame_len = nat_decode(cumulation)
+    if data == NOT_FULL_FRAME:
         return
 
+    # 跳过一个帧的长度,存储剩下的字节
+    conn_nat_socket_fd_dict[str(fd)][NAT_PARSER_REQUEST] = cumulation[frame_len:]
+
     try:
-        command = frame['command']
+        command = data['command']
+        frame = data['frame']
         if command == NAT_COMMAND_PROXY: # NAT Client 让 NAT Server 监听 proxy_port 端口
 
             proxy_protocol = frame['proxy_protocol']
             proxy_port = frame['proxy_port']
 
-            if str(proxy_port) in listen_proxy_port_map.keys():
+            if str(proxy_port) in listen_proxy_port_dict.keys():
                 print('该端口正在监听,请选择其他监听端口')
                 close_nat_socket(conn_nat_socket)
                 return
 
             proxy_server_socket = createProxyServerSocket(ip="0.0.0.0", port=proxy_port)
 
-            listen_proxy_port_map[str(proxy_port)] = {
+            listen_proxy_port_dict[str(proxy_port)] = {
                 "proxy_protocol": proxy_protocol,
                 "proxy_port": proxy_port,
                 "proxy_server_socket": proxy_server_socket,
@@ -54,7 +58,7 @@ def handle_nat_client_request(conn_nat_socket):
             listen_proxy_server_socket_list.append(proxy_server_socket)
         elif command == NAT_COMMAND_RESPONSE: # NAT Client 让 NAT Server 把数据返回给 Client
             conn_proxy_socket_fd = frame['conn_proxy_socket_fd']
-            conn_proxy_socket = conn_proxy_socket_fd_map[conn_proxy_socket_fd][SOCKET_KEY]
+            conn_proxy_socket = conn_proxy_socket_fd_dict[str(conn_proxy_socket_fd)][SOCKET_KEY]
 
 
             headers = frame['headers']
@@ -71,11 +75,11 @@ def handle_nat_client_request(conn_nat_socket):
 
             frame = "".join(l)
 
-            print(f'conn_proxy_socket_fd={conn_proxy_socket.fileno()}向Client发送数据')
+            print(f'conn_proxy_socket_fd={conn_proxy_socket.fileno()}向Client发送数据:{frame}')
             conn_proxy_socket.sendall(bytes(frame.encode('utf-8')))
         else:
             print(f"Not supported request, client socket close, {conn_nat_socket}")
             close_nat_socket(conn_nat_socket)
 
     except Exception as err:
-        print(err)
+        print('handle_nat_client_request 异常', err)

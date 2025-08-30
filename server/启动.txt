@@ -1,1 +1,3 @@
+export PYTHONPATH=/root/server/nat_util
+进入 nat_util/server 目录
 python3 nat_server.py --port 58090
